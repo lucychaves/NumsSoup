@@ -6,55 +6,15 @@
 
 #include "soupGenerator.h"
 
-#define MAX_BUF 1024
 
-int readFromChild(char team) {
-	int fd =0, found;
-    char myfifo[6] = "/tmp/";
-	myfifo[5] = team;
-    char buf[MAX_BUF];
-
-    /* open, read, and display the message from the FIFO */
-    
-	fd = open(myfifo, O_RDONLY);
-	if(fd) {
-		read(fd, buf, MAX_BUF);
-    	close(fd);
-		fprintf(strFound, "%s", buf);
-		scanf(buf, "%d", &found);
-		return atoi(buf);
-	}
-	return 0;
-}
-
-void writeFromChild(char* team, int found) {
-	int fd;
-    char myfifo[6] = "/tmp/";
-	myfifo[5] = *team;
-	char strFound[256];
-
-	//read from past pipe
-	found += readFromChild(team[0]);
-
-	//convert int to string to write
-	sprintf(strFound, "%d", found);
-
-	printf("%d\n",found);
-
-    /* create the FIFO (named pipe) */
-    mkfifo(myfifo, 0666);
-
-    /* write "Hi" to the FIFO */
-    fd = open(myfifo, O_WRONLY);
-    write(fd, strFound, sizeof(strFound));
-    close(fd);
-}
+int SCORE_A = 0;
+int SCORE_B = 0;
 
 void listNums(int **digits){
 	
 	FILE *file;
 	//open file input stream
-	file = fopen("num_soup", "r");
+	file = fopen(FILE_NAME, "r");
 	char num;
 	int i =0;
 	while(fscanf(file,"%c", &num) != EOF) {
@@ -64,7 +24,7 @@ void listNums(int **digits){
 }
 
 int runner(int digits[], int len) {	
-	int found = 0;
+	int found = 1;
 
 	for(int i = 0; i < len; i++) {
 		//printf("%d",digits[i]);
@@ -73,21 +33,43 @@ int runner(int digits[], int len) {
 	return found;
 }
 
-void createTeam(char *teamName, int digits[], int numberOfDigits, int levels, int child) {
-	pid_t pid;
+void createTeam(char *teamName, int digits[], int numberOfDigits, int levels) {
+	int fd[2], found = 0;
+	pid_t childpid;
+	char buffer[64];
 	
-	if(levels != 0) {
+	while(levels-- != 0) {
+		pipe(fd);
 
-		pid = fork();
-		if(pid == 0) {
-			runner(digits, numberOfDigits);
+		childpid = fork();
+		if (childpid == 0) {
 
-			createTeam(teamName, digits, numberOfDigits, levels -1, 1);
+			found += runner(digits, numberOfDigits);
 			
-			//write number of pids found
-			writeFromChild(teamName, 1);
+			//child closes input side of pipe
+			close(fd[0]);
+			//write number of pids found by runner
+			sprintf(buffer, "%d", found);			
+			write(fd[1], buffer, strlen(buffer) + 1);
 
 			exit(0);
+		} else { //parent processes
+			wait(NULL);
+
+			close(fd[1]); //close output side of pipe
+			read(fd[0], buffer, sizeof(buffer));
+			sscanf(buffer, "%d", &found);
+
+			//child closes input side of pipe
+			close(fd[0]);
+			//write number of pids found by runner
+			sprintf(buffer, "%d", found);			
+			write(fd[1], buffer, strlen(buffer) + 1);
+			
+			if (*teamName == 'A')
+				SCORE_A = found;
+			else if (*teamName == 'B')
+				SCORE_B = found;
 		}
 		
 	}
@@ -95,15 +77,22 @@ void createTeam(char *teamName, int digits[], int numberOfDigits, int levels, in
 }
 
 void checkWinner() {
-	int scoreA, scoreB;
-	scoreA = readFromChild('A');
-	scoreB = readFromChild('B');
+	printf("A found: %d\nB found: %d\n", SCORE_A, SCORE_B);
 
-	printf("A: %d\nB: %d\n", scoreA, scoreB);
+	if (SCORE_A == SCORE_B) {
+		printf("Team A and B tied!\n");
+	} else if (SCORE_A > SCORE_B) {
+		printf("Team A Won!\n");
+	} else {
+		printf("Team B Won!\n");
+	}
 }
 
 
 int main(int argc, char *argv[]) {	
+	pid_t wpid;
+	int status = 0;
+
 	if(argc == 2){
 		int numberOfDigits = atoi(argv[1]);
 		int digits[numberOfDigits];
@@ -111,21 +100,16 @@ int main(int argc, char *argv[]) {
 		
 		generateSoup(numberOfDigits);
 		listNums(&ptrDigit);
-		
-		//cleanup temp pipe files from previous runs
-		remove("/tmp/A");
-		remove("/tmp/B");
 
-	 	createTeam("A", digits, numberOfDigits, 3,0);
-	 	createTeam("B", digits, numberOfDigits, 4,0);
+	 	createTeam("A", digits, numberOfDigits, 4);
+	 	createTeam("B", digits, numberOfDigits, 3);
 	}
 	else {
         printf("Invalid number of arguments!\n"
         "Call program with the number of digits\n");
     }
     
-    int status;
-    waitpid(1,&status,WNOHANG);
+    while ((wpid = wait(&status)) > 0);
 
 	//all processes have finished
 	checkWinner();
