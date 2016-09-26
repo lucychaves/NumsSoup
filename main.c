@@ -10,7 +10,7 @@
 int SCORE_A = 0;
 int SCORE_B = 0;
 
-void listNums(int **digits){
+void listNums(char **digits){
 	
 	FILE *file;
 	//open file input stream
@@ -18,22 +18,37 @@ void listNums(int **digits){
 	char num;
 	int i =0;
 	while(fscanf(file,"%c", &num) != EOF) {
-		(*digits)[i++] = (int) num;
+		(*digits)[i++] = num;
 	}
 	fclose(file);
 }
 
-int runner(int digits[], int len) {	
-	int found = 1;
+int runner(char digits[], int len, int dir) {	
+	int found = 0, lenPid, i, numChar;
+	char strPid[64];
 
-	for(int i = 0; i < len; i++) {
-		//printf("%d",digits[i]);
+	sprintf(strPid, "%d",getpid());
+	lenPid = strlen(strPid);
+
+	for(i = dir ? 0 : len, numChar=0; 
+		dir ? i < len : i > 0; 
+		dir ? i++ : i--) {
+		if(numChar == lenPid) {
+			printf("Pid: %d \t Type: %s \t Found @: %d\n",
+				getpid(), dir ? "Right" : "Left", i);
+			found++;
+			numChar=0;
+		} else if (digits[i] == strPid[numChar]) {
+			numChar++;
+		} else {
+			numChar = 0;
+		}
 	}
 
 	return found;
 }
 
-void createTeam(char *teamName, int digits[], int numberOfDigits, int levels) {
+void createTeam(char *teamName, char digits[], int numberOfDigits, int levels) {
 	int fd[2], found = 0;
 	pid_t childpid;
 	char buffer[64];
@@ -44,8 +59,11 @@ void createTeam(char *teamName, int digits[], int numberOfDigits, int levels) {
 		childpid = fork();
 		if (childpid == 0) {
 
-			found += runner(digits, numberOfDigits);
-			
+			//right runner
+			found += runner(digits, numberOfDigits, 1);
+			//left runner
+			found += runner(digits, numberOfDigits, 0);
+
 			//child closes input side of pipe
 			close(fd[0]);
 			//write number of pids found by runner
@@ -71,9 +89,7 @@ void createTeam(char *teamName, int digits[], int numberOfDigits, int levels) {
 			else if (*teamName == 'B')
 				SCORE_B = found;
 		}
-		
 	}
-
 }
 
 void checkWinner() {
@@ -93,16 +109,17 @@ int main(int argc, char *argv[]) {
 	pid_t wpid;
 	int status = 0;
 
-	if(argc == 2){
+	if(argc == 3){
 		int numberOfDigits = atoi(argv[1]);
-		int digits[numberOfDigits];
-		int *ptrDigit = digits;
-		
+		int levels = atoi(argv[2]);
+		char digits[numberOfDigits];
+		char *ptrDigit = digits;
+
 		generateSoup(numberOfDigits);
 		listNums(&ptrDigit);
 
-	 	createTeam("A", digits, numberOfDigits, 4);
-	 	createTeam("B", digits, numberOfDigits, 3);
+	 	createTeam("A", digits, numberOfDigits, levels);
+	 	createTeam("B", digits, numberOfDigits, levels);
 	}
 	else {
         printf("Invalid number of arguments!\n"
