@@ -23,7 +23,7 @@ void listNums(char **digits){
 	fclose(file);
 }
 
-int runner(char digits[], int len, int dir) {	
+int runner(char *team, char digits[], int len, int dir) {	
 	int found = 0, lenPid, i, numChar;
 	char strPid[64];
 
@@ -34,8 +34,8 @@ int runner(char digits[], int len, int dir) {
 		dir ? i < len : i > 0; 
 		dir ? i++ : i--) {
 		if(numChar == lenPid) {
-			printf("Pid: %d \t Type: %s \t Found @: %d\n",
-				getpid(), dir ? "Right" : "Left", i);
+			printf("Team: %s \t Pid: %d \t PPid: %d \t Type: %s \t Found @: %d\n",
+				team,getpid(),getppid(), dir ? "Right" : "Left", i);
 			found++;
 			numChar=0;
 		} else if (digits[i] == strPid[numChar]) {
@@ -48,48 +48,52 @@ int runner(char digits[], int len, int dir) {
 	return found;
 }
 
+void pipeRead(int fd[], int *found, char buffer[]) {
+	close(fd[1]); //close output side of pipe
+	read(fd[0], buffer, sizeof(*buffer) *64);
+	sscanf(buffer, "%d", found);
+}
+
+void pipeWrite(int fd[], int *found, char buffer[]) {
+	//child closes input side of pipe
+	close(fd[0]);
+	//write number of pids found by runner
+	sprintf(buffer, "%d", *found);			
+	write(fd[1], buffer, strlen(buffer) + 1);
+}
+
 void createTeam(char *teamName, char digits[], int numberOfDigits, int levels) {
 	int fd[2], found = 0;
 	pid_t childpid;
 	char buffer[64];
-	
+
 	while(levels-- != 0) {
 		pipe(fd);
 
 		childpid = fork();
 		if (childpid == 0) {
 
+			pipeRead(fd,&found,buffer);
+
 			//right runner
-			found += runner(digits, numberOfDigits, 1);
+			found += runner(teamName, digits, numberOfDigits, 1);
 			//left runner
-			found += runner(digits, numberOfDigits, 0);
+			found += runner(teamName, digits, numberOfDigits, 0);
 
-			//child closes input side of pipe
-			close(fd[0]);
-			//write number of pids found by runner
-			sprintf(buffer, "%d", found);			
-			write(fd[1], buffer, strlen(buffer) + 1);
+			pipeWrite(fd,&found,buffer);
 
-			exit(0);
 		} else { //parent processes
+			pipeWrite(fd,&found,buffer);
 			wait(NULL);
-
-			close(fd[1]); //close output side of pipe
-			read(fd[0], buffer, sizeof(buffer));
-			sscanf(buffer, "%d", &found);
-
-			//child closes input side of pipe
-			close(fd[0]);
-			//write number of pids found by runner
-			sprintf(buffer, "%d", found);			
-			write(fd[1], buffer, strlen(buffer) + 1);
-			
-			if (*teamName == 'A')
-				SCORE_A = found;
-			else if (*teamName == 'B')
-				SCORE_B = found;
+			exit(0);
 		}
 	}
+
+	if (*teamName == 'A')
+			SCORE_A = found;
+	else if (*teamName == 'B')
+			SCORE_B = found;
+
 }
 
 void checkWinner() {
